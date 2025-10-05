@@ -41,6 +41,27 @@
 #include <unistd.h>
 #include <linux/uhid.h>
 
+/* ===== Minimal hygiene / constants ===== */
+#define HID_MOD_LSHIFT 0x02
+
+/* Common HID key codes we use */
+#define HID_KEY_ENTER 0x28
+#define HID_KEY_ESC   0x29
+#define HID_KEY_SPACE 0x2c
+
+/* Arrow keys (usage page 0x07) */
+#define HID_KEY_RIGHT 0x4f
+#define HID_KEY_LEFT  0x50
+#define HID_KEY_DOWN  0x51
+#define HID_KEY_UP    0x52
+
+/* Helpers */
+#define IS_UPPER_ALPHA(c) ((c) >= 'A' && (c) <= 'Z')
+#define IS_LOWER_ALPHA(c) ((c) >= 'a' && (c) <= 'z')
+#define IS_DIGIT(c)       ((c) >= '0' && (c) <= '9')
+
+static int g_verbose = 1; /* gated later via env */
+
 /*
  * HID Report Descriptor
  * We emulate a basic keyboard device. This is the report-descriptor as the kernel will parse it:
@@ -187,8 +208,9 @@ static void handle_output(struct uhid_event *ev)
 		return;
 
 	/* print flags payload */
-	fprintf(stderr, "LED output report received with flags %x\n",
-		ev->u.output.data[1]);
+    if (g_verbose)
+        fprintf(stderr, "LED output report received with flags %x\n",
+            ev->u.output.data[1]);
 }
 
 static int event(int fd)
@@ -212,19 +234,19 @@ static int event(int fd)
 
 	switch (ev.type) {
 	case UHID_START:
-		fprintf(stderr, "UHID_START from uhid-dev\n");
+    if (g_verbose) fprintf(stderr, "UHID_START from uhid-dev\n");
 		break;
 	case UHID_STOP:
-		fprintf(stderr, "UHID_STOP from uhid-dev\n");
+    if (g_verbose) fprintf(stderr, "UHID_STOP from uhid-dev\n");
 		break;
 	case UHID_OPEN:
-		fprintf(stderr, "UHID_OPEN from uhid-dev\n");
+    if (g_verbose) fprintf(stderr, "UHID_OPEN from uhid-dev\n");
 		break;
 	case UHID_CLOSE:
-		fprintf(stderr, "UHID_CLOSE from uhid-dev\n");
+    if (g_verbose) fprintf(stderr, "UHID_CLOSE from uhid-dev\n");
 		break;
 	case UHID_OUTPUT:
-		fprintf(stderr, "UHID_OUTPUT from uhid-dev\n");
+    if (g_verbose) fprintf(stderr, "UHID_OUTPUT from uhid-dev\n");
 		handle_output(&ev);
 		break;
 	case UHID_OUTPUT_EV:
@@ -265,18 +287,20 @@ static int send_event(int fd)
 		memcpy(&ev.u.input.data[2], key_codes, copy_len);
 	}
 
-	/* Debug output for all HID reports */
-	if (num_keys_pressed > 0) {
-		fprintf(stderr, "HID Report: modifiers=0x%02x, keys=[", modifier_keys);
-		for (int i = 0; i < 6; i++) {
-			if (key_codes[i] != 0) {
-				fprintf(stderr, "0x%02x ", key_codes[i]);
-			}
-		}
-		fprintf(stderr, "]\n");
-	} else {
-		fprintf(stderr, "HID Report: modifiers=0x%02x, keys=[ ] (no keys pressed)\n", modifier_keys);
-	}
+    /* Debug output for all HID reports */
+    if (g_verbose) {
+        if (num_keys_pressed > 0) {
+            fprintf(stderr, "HID Report: modifiers=0x%02x, keys=[", modifier_keys);
+            for (int i = 0; i < 6; i++) {
+                if (key_codes[i] != 0) {
+                    fprintf(stderr, "0x%02x ", key_codes[i]);
+                }
+            }
+            fprintf(stderr, "]\n");
+        } else {
+            fprintf(stderr, "HID Report: modifiers=0x%02x, keys=[ ] (no keys pressed)\n", modifier_keys);
+        }
+    }
 
 	return uhid_write(fd, &ev);
 }
@@ -292,16 +316,16 @@ static unsigned char ascii_to_hid(char c)
 		return 0x1e + (c - '1');  /* HID_1 = 0x1e */
 	if (c == '0')
 		return 0x27;  /* HID_0 = 0x27 */
-	if (c == ' ')
-		return 0x2c;  /* HID_SPACE = 0x2c */
-	if (c == '\n' || c == '\r')
-		return 0x28;  /* HID_ENTER = 0x28 */
-	if (c == '\b')
-		return 0x2a;  /* HID_BACKSPACE = 0x2a */
-	if (c == '\t')
-		return 0x2b;  /* HID_TAB = 0x2b */
-	if (c == 27)  /* ESC */
-		return 0x29;  /* HID_ESCAPE = 0x29 */
+    if (c == ' ')
+        return HID_KEY_SPACE;
+    if (c == '\n' || c == '\r')
+        return HID_KEY_ENTER;
+    if (c == '\b')
+        return 0x2a;  /* HID_BACKSPACE */
+    if (c == '\t')
+        return 0x2b;  /* HID_TAB */
+    if (c == 27)  /* ESC */
+        return HID_KEY_ESC;
 	
 	/* Special characters */
 	switch (c) {
@@ -424,12 +448,12 @@ static int keyboard(int fd)
 			
 			if (hid_code != 0) {
 				/* We have a complete arrow key sequence */
-				switch (escape_buf[2]) {
-				case 'A': key_name = "UP_ARROW"; break;
-				case 'B': key_name = "DOWN_ARROW"; break;
-				case 'C': key_name = "RIGHT_ARROW"; break;
-				case 'D': key_name = "LEFT_ARROW"; break;
-				}
+            switch (escape_buf[2]) {
+            case 'A': key_name = "UP_ARROW"; break;
+            case 'B': key_name = "DOWN_ARROW"; break;
+            case 'C': key_name = "RIGHT_ARROW"; break;
+            case 'D': key_name = "LEFT_ARROW"; break;
+            }
 			} else {
 				/* Still building escape sequence, continue */
 				continue;
@@ -462,14 +486,16 @@ static int keyboard(int fd)
 			continue;
 		}
 		
-		/* Debug output for all keys */
-		fprintf(stderr, "Processing character: %c (0x%02x) -> %s (HID code: 0x%02x)\n", 
-			buf[i], (unsigned char)buf[i], key_name, hid_code);
+        /* Debug output for all keys */
+        if (g_verbose) {
+            fprintf(stderr, "Processing character: %c (0x%02x) -> %s (HID code: 0x%02x)\n", 
+                buf[i], (unsigned char)buf[i], key_name, hid_code);
+        }
 		
 		/* Check for shift requirement (exclude non-printable like arrows) */
-		if (buf[i] >= 'A' && buf[i] <= 'Z' &&
-			!(hid_code == 0x52 || hid_code == 0x51 || hid_code == 0x4f || hid_code == 0x50)) {
-			modifier_keys |= 0x02;  /* Left Shift */
+        if (IS_UPPER_ALPHA(buf[i]) &&
+            !(hid_code == HID_KEY_UP || hid_code == HID_KEY_DOWN || hid_code == HID_KEY_RIGHT || hid_code == HID_KEY_LEFT)) {
+            modifier_keys |= HID_MOD_LSHIFT;  /* Left Shift */
 		}
 		
 		/* Press the key */
@@ -478,9 +504,9 @@ static int keyboard(int fd)
 		
 		/* Release the key */
 		remove_key(hid_code);
-		if (buf[i] >= 'A' && buf[i] <= 'Z' &&
-			!(hid_code == 0x52 || hid_code == 0x51 || hid_code == 0x4f || hid_code == 0x50)) {
-			modifier_keys &= ~0x02;  /* Release Left Shift */
+        if (IS_UPPER_ALPHA(buf[i]) &&
+            !(hid_code == HID_KEY_UP || hid_code == HID_KEY_DOWN || hid_code == HID_KEY_RIGHT || hid_code == HID_KEY_LEFT)) {
+            modifier_keys &= ~HID_MOD_LSHIFT;  /* Release Left Shift */
 		}
 		send_event(fd);
 	}
@@ -516,7 +542,11 @@ int main(int argc, char **argv)
 		}
 	}
 
-	fprintf(stderr, "Open uhid-cdev %s\n", path);
+    const char *env_verbose = getenv("UHID_VERBOSE");
+    if (env_verbose && (!strcmp(env_verbose, "0") || !strcasecmp(env_verbose, "false")))
+        g_verbose = 0;
+
+    fprintf(stderr, "Open uhid-cdev %s\n", path);
 	fd = open(path, O_RDWR | O_CLOEXEC);
 	if (fd < 0) {
 		fprintf(stderr, "Cannot open uhid-cdev %s: %m\n", path);
