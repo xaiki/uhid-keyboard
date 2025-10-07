@@ -45,9 +45,16 @@
 #define HID_MOD_LSHIFT 0x02
 
 /* Common HID key codes we use */
+#define HID_A 0x04
+#define HID_1 0x1e
+#define HID_0 0x27
+#define HID_TAB 0x2b
+#define HID_ESC 0x29
+
 #define HID_KEY_ENTER 0x28
 #define HID_KEY_ESC   0x29
 #define HID_KEY_SPACE 0x2c
+#define HID_KEY_BACKSPACE 0x2a
 
 /* Arrow keys (usage page 0x07) */
 #define HID_KEY_RIGHT 0x4f
@@ -309,23 +316,23 @@ static int send_event(int fd)
 static unsigned char ascii_to_hid(char c)
 {
 	if (c >= 'a' && c <= 'z')
-		return 0x04 + (c - 'a');  /* HID_A = 0x04 */
+		return HID_A + (c - 'a');  /* HID_A = 0x04 */
 	if (c >= 'A' && c <= 'Z')
-		return 0x04 + (c - 'A');  /* Same as lowercase */
+		return HID_A + (c - 'A');  /* Same as lowercase */
 	if (c >= '1' && c <= '9')
-		return 0x1e + (c - '1');  /* HID_1 = 0x1e */
+		return HID_1 + (c - '1');  /* HID_1 = 0x1e */
 	if (c == '0')
-		return 0x27;  /* HID_0 = 0x27 */
+		return HID_0;  /* HID_0 = 0x27 */
     if (c == ' ')
         return HID_KEY_SPACE;
     if (c == '\n' || c == '\r')
         return HID_KEY_ENTER;
     if (c == '\b')
-        return 0x2a;  /* HID_BACKSPACE */
+        return HID_KEY_BACKSPACE;
     if ((unsigned char)c == 0x7f)
-        return 0x2a;  /* HID_BACKSPACE (DEL) */
+        return HID_KEY_BACKSPACE;
     if (c == '\t')
-        return 0x2b;  /* HID_TAB */
+        return HID_TAB;  /* HID_TAB */
     if (c == 27)  /* ESC */
         return HID_KEY_ESC;
 	
@@ -362,10 +369,10 @@ static unsigned char process_escape_sequence(void)
 	if (escape_len >= 3 && escape_buf[0] == 27 && escape_buf[1] == '[') {
 		unsigned char hid_code = 0;
 		switch (escape_buf[2]) {
-		case 'A': hid_code = 0x52; break;  /* HID_UP_ARROW */
-		case 'B': hid_code = 0x51; break;  /* HID_DOWN_ARROW */
-		case 'C': hid_code = 0x4f; break;  /* HID_RIGHT_ARROW */
-		case 'D': hid_code = 0x50; break;  /* HID_LEFT_ARROW */
+		case 'A': hid_code = HID_KEY_UP; break;  /* HID_UP_ARROW */
+		case 'B': hid_code = HID_KEY_DOWN; break;  /* HID_DOWN_ARROW */
+		case 'C': hid_code = HID_KEY_RIGHT; break;  /* HID_RIGHT_ARROW */
+		case 'D': hid_code = HID_KEY_LEFT; break;  /* HID_LEFT_ARROW */
 		}
 		if (hid_code != 0) {
 			/* Clear the escape buffer */
