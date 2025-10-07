@@ -56,6 +56,10 @@
 #define HID_KEY_SPACE 0x2c
 #define HID_KEY_BACKSPACE 0x2a
 
+/* Extended keyboard usages for media keys on usage page 0x07 */
+#define HID_KEY_VOLUMEUP   0x80
+#define HID_KEY_VOLUMEDOWN 0x81
+
 /* Arrow keys (usage page 0x07) */
 #define HID_KEY_RIGHT 0x4f
 #define HID_KEY_LEFT  0x50
@@ -131,6 +135,7 @@ static unsigned char rdesc[] = {
 	0x05, 0x01,	/* USAGE_PAGE (Generic Desktop) */
 	0x09, 0x06,	/* USAGE (Keyboard) */
 	0xa1, 0x01,	/* COLLECTION (Application) */
+	0x85, 0x01,		/* REPORT_ID (1) - Keyboard */
 	0x05, 0x07,		/* USAGE_PAGE (Keyboard) */
 	0x19, 0xe0,		/* USAGE_MINIMUM (Keyboard LeftControl) */
 	0x29, 0xe7,		/* USAGE_MAXIMUM (Keyboard Right GUI) */
@@ -151,6 +156,22 @@ static unsigned char rdesc[] = {
 	0x29, 0x65,		/* USAGE_MAXIMUM (Keyboard Application) */
 	0x81, 0x00,		/* INPUT (Data,Array,Abs) */
 	0xc0,		/* END_COLLECTION */
+
+	/* Consumer Control for Volume Up/Down (1-byte report) */
+	0x05, 0x0c,		/* USAGE_PAGE (Consumer) */
+	0x09, 0x01,		/* USAGE (Consumer Control) */
+	0xa1, 0x01,		/* COLLECTION (Application) */
+	0x85, 0x02,		/* REPORT_ID (2) - Consumer */
+	0x15, 0x00,		/* LOGICAL_MINIMUM (0) */
+	0x25, 0x01,		/* LOGICAL_MAXIMUM (1) */
+	0x09, 0xe9,		/* USAGE (Volume Increment) */
+	0x09, 0xea,		/* USAGE (Volume Decrement) */
+	0x75, 0x01,		/* REPORT_SIZE (1) */
+	0x95, 0x02,		/* REPORT_COUNT (2) */
+	0x81, 0x02,		/* INPUT (Data,Var,Abs) */
+	0x95, 0x06,		/* REPORT_COUNT (6) - padding */
+	0x81, 0x01,		/* INPUT (Cnst,Array,Abs) */
+	0xc0,			/* END_COLLECTION */
 };
 
 static int uhid_write(int fd, const struct uhid_event *ev)
@@ -281,23 +302,24 @@ static int send_event(int fd)
 
 	memset(&ev, 0, sizeof(ev));
 	ev.type = UHID_INPUT;
-	ev.u.input.size = 8;  /* 1 byte modifiers + 1 byte reserved + 6 bytes key codes */
+    ev.u.input.size = 9;  /* 1 byte report-id + 1 byte modifiers + 1 reserved + 6 keys */
 
-	ev.u.input.data[0] = modifier_keys;  /* Modifier keys bitfield */
-	ev.u.input.data[1] = 0;              /* Reserved byte */
+    ev.u.input.data[0] = 0x01;           /* Report ID: Keyboard */
+    ev.u.input.data[1] = modifier_keys;  /* Modifier keys bitfield */
+    ev.u.input.data[2] = 0;              /* Reserved byte */
 	
 	/* Ensure no stale keycodes remain in the report on key-up */
-	memset(&ev.u.input.data[2], 0, 6);
+    memset(&ev.u.input.data[3], 0, 6);
 	if (num_keys_pressed > 0) {
 		/* Copy only currently pressed keys */
 		int copy_len = num_keys_pressed > 6 ? 6 : num_keys_pressed;
-		memcpy(&ev.u.input.data[2], key_codes, copy_len);
+        memcpy(&ev.u.input.data[3], key_codes, copy_len);
 	}
 
     /* Debug output for all HID reports */
     if (g_verbose) {
         if (num_keys_pressed > 0) {
-            fprintf(stderr, "HID Report: modifiers=0x%02x, keys=[", modifier_keys);
+            fprintf(stderr, "HID Report (ID=1): modifiers=0x%02x, keys=[", modifier_keys);
             for (int i = 0; i < 6; i++) {
                 if (key_codes[i] != 0) {
                     fprintf(stderr, "0x%02x ", key_codes[i]);
@@ -310,6 +332,24 @@ static int send_event(int fd)
     }
 
 	return uhid_write(fd, &ev);
+}
+
+/* Send a 1-byte Consumer Control report for Volume keys */
+static int send_consumer_event(int fd, unsigned char bits)
+{
+    struct uhid_event ev;
+
+    memset(&ev, 0, sizeof(ev));
+    ev.type = UHID_INPUT;
+    ev.u.input.size = 2;  /* 1 byte report-id + 1 byte: bit0=Vol+, bit1=Vol- */
+    ev.u.input.data[0] = 0x02; /* Report ID: Consumer */
+    ev.u.input.data[1] = bits;
+
+    if (g_verbose) {
+        fprintf(stderr, "Consumer Report (ID=2): bits=0x%02x\n", bits);
+    }
+
+    return uhid_write(fd, &ev);
 }
 
 /* Map ASCII character to HID key code */
@@ -481,6 +521,20 @@ static int keyboard(int fd)
 			}
 		} else {
 			/* Regular character */
+			/* Map consumer volume keys on '{' and '}' */
+			if (buf[i] == '{') {
+				/* Volume Down press + release */
+				send_consumer_event(fd, 0x02);
+				send_consumer_event(fd, 0x00);
+				key_name = "VOLUME_DOWN";
+				continue;
+			} else if (buf[i] == '}') {
+				/* Volume Up press + release */
+				send_consumer_event(fd, 0x01);
+				send_consumer_event(fd, 0x00);
+				key_name = "VOLUME_UP";
+				continue;
+			}
 			hid_code = ascii_to_hid(buf[i]);
 			if (buf[i] == ' ') key_name = "SPACE";
 			else if (buf[i] == '\n' || buf[i] == '\r') key_name = "ENTER";
