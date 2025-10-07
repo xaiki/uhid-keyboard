@@ -166,10 +166,11 @@ static unsigned char rdesc[] = {
 	0x25, 0x01,		/* LOGICAL_MAXIMUM (1) */
 	0x09, 0xe9,		/* USAGE (Volume Increment) */
 	0x09, 0xea,		/* USAGE (Volume Decrement) */
+	0x09, 0xcd,		/* USAGE (Play/Pause) */
 	0x75, 0x01,		/* REPORT_SIZE (1) */
-	0x95, 0x02,		/* REPORT_COUNT (2) */
+	0x95, 0x03,		/* REPORT_COUNT (3) */
 	0x81, 0x02,		/* INPUT (Data,Var,Abs) */
-	0x95, 0x06,		/* REPORT_COUNT (6) - padding */
+	0x95, 0x05,		/* REPORT_COUNT (5) - padding */
 	0x81, 0x01,		/* INPUT (Cnst,Array,Abs) */
 	0xc0,			/* END_COLLECTION */
 };
@@ -295,6 +296,7 @@ static int num_keys_pressed = 0;          /* Number of keys currently pressed */
 /* Escape sequence buffer for arrow keys */
 static char escape_buf[8];
 static int escape_len = 0;
+static unsigned char pending_consumer_bits = 0; /* bitfield for consumer actions from escape sequences */
 
 static int send_event(int fd)
 {
@@ -341,7 +343,7 @@ static int send_consumer_event(int fd, unsigned char bits)
 
     memset(&ev, 0, sizeof(ev));
     ev.type = UHID_INPUT;
-    ev.u.input.size = 2;  /* 1 byte report-id + 1 byte: bit0=Vol+, bit1=Vol- */
+    ev.u.input.size = 2;  /* 1 byte report-id + 1 byte: bit0=Vol+, bit1=Vol-, bit2=Play/Pause */
     ev.u.input.data[0] = 0x02; /* Report ID: Consumer */
     ev.u.input.data[1] = bits;
 
@@ -420,6 +422,14 @@ static unsigned char process_escape_sequence(void)
 			return hid_code;
 		}
 	}
+    /* ESC [ 19 ~  => Play/Pause consumer control */
+    if (escape_len >= 5 && escape_buf[0] == 27 && escape_buf[1] == '[' &&
+        escape_buf[2] == '1' && escape_buf[3] == '9' && escape_buf[4] == '~') {
+        /* consume the sequence and schedule a consumer report */
+        escape_len = 0;
+        pending_consumer_bits = 0x04; /* Play/Pause bit */
+        return 0; /* no keyboard HID code */
+    }
 	return 0;  /* Not a complete arrow key sequence */
 }
 
@@ -495,7 +505,7 @@ static int keyboard(int fd)
 			add_to_escape_buf(buf[i]);
 			hid_code = process_escape_sequence();
 			
-			if (hid_code != 0) {
+        if (hid_code != 0) {
 				/* We have a complete arrow key sequence */
             switch (escape_buf[2]) {
             case 'A': key_name = "UP_ARROW"; break;
@@ -503,6 +513,13 @@ static int keyboard(int fd)
             case 'C': key_name = "RIGHT_ARROW"; break;
             case 'D': key_name = "LEFT_ARROW"; break;
             }
+        } else if (escape_len == 0 && pending_consumer_bits != 0) {
+            /* Special handled sequence consumed (e.g., Play/Pause) */
+            send_consumer_event(fd, pending_consumer_bits);
+            send_consumer_event(fd, 0x00);
+            key_name = (pending_consumer_bits & 0x04) ? "PLAY_PAUSE" : key_name;
+            pending_consumer_bits = 0;
+            continue;
 			} else {
 				/* Still building escape sequence, continue */
 				continue;
