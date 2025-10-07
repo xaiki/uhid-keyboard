@@ -322,6 +322,8 @@ static unsigned char ascii_to_hid(char c)
         return HID_KEY_ENTER;
     if (c == '\b')
         return 0x2a;  /* HID_BACKSPACE */
+    if ((unsigned char)c == 0x7f)
+        return 0x2a;  /* HID_BACKSPACE (DEL) */
     if (c == '\t')
         return 0x2b;  /* HID_TAB */
     if (c == 27)  /* ESC */
@@ -475,6 +477,7 @@ static int keyboard(int fd)
 			hid_code = ascii_to_hid(buf[i]);
 			if (buf[i] == ' ') key_name = "SPACE";
 			else if (buf[i] == '\n' || buf[i] == '\r') key_name = "ENTER";
+            else if (buf[i] == '\b' || (unsigned char)buf[i] == 0x7f) key_name = "BACKSPACE";
 			else if (buf[i] == 27) key_name = "ESC";
 			else if (buf[i] >= 'a' && buf[i] <= 'z') key_name = "LETTER";
 			else if (buf[i] >= 'A' && buf[i] <= 'Z') key_name = "LETTER";
