@@ -3,4 +3,4 @@
 This is a small hack to send keystrokes via a UHID device on your machine,
 I wrote this for only one purpose: controling my kodi instalation when i can't be bothered to get to the remote app.
 
-it's mostly vibecoded in cursor hackstanding https://raw.githubusercontent.com/torvalds/linux/refs/heads/master/samples/uhid/uhid-example.c
+it's mostly vibecoded in cursor hackstanding https://git.kernel.org/pub/scm/linux/kernel/git/torvalds/linux.git/tree/samples/uhid/uhid-example.c
